@@ -34,8 +34,6 @@ public class URLSessionInstrumentation {
 
     static var instrumentedKey = "io.opentelemetry.instrumentedCall"
 
-    static let avAssetDownloadTask: AnyClass? = NSClassFromString("__NSCFBackgroundAVAssetDownloadTask")
-
     public private(set) var tracer: Tracer
 
     public var startedRequestSpans: [Span] {
@@ -591,21 +589,6 @@ public class URLSessionInstrumentation {
     }
 
     private func urlSessionTaskWillResume(_ task: URLSessionTask) {
-        // AV Asset Tasks cannot be auto instrumented, they dont include request attributes, skip them
-        if let avAssetTaskClass = Self.avAssetDownloadTask,
-           task.isKind(of: avAssetTaskClass) {
-            return
-        }
-
-        // We cannot instrument async background tasks because they crash if you assign a delegate
-        if #available(OSX 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *) {
-            if objc_getAssociatedObject(task, "IsBackground") is Bool {
-                guard Task.basePriority == nil else {
-                    return
-                }
-            }
-        }
-
         let taskId = idKeyForTask(task)
         if let request = task.currentRequest {
             queue.sync {
@@ -615,15 +598,9 @@ public class URLSessionInstrumentation {
                 requestMap[taskId]?.setRequest(request)
             }
 
-            if #available(OSX 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *) {
-                guard Task.basePriority != nil else {
-                    // If not inside a Task basePriority is nil
-                    return
-                }
                 let instrumentedRequest = URLSessionLogger.processAndLogRequest(request, sessionTaskId: taskId, instrumentation: self, shouldInjectHeaders: true)
                 task.setValue(instrumentedRequest, forKey: "currentRequest")
                 self.setIdKey(value: taskId, for: task)
-            }
         }
     }
 
@@ -648,8 +625,4 @@ public class URLSessionInstrumentation {
             requestMap[id] = state
         }
     }
-}
-
-class FakeDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {}
 }
